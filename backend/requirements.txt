@@ -1,0 +1,19 @@
+# Agent Afterlife — Backend dependencies
+# Phase 2A: minimal set for models + policy engine + tests
+
+# Web framework + ASGI
+fastapi==0.136.1
+uvicorn[standard]==0.47.0
+
+# Data validation (source of truth for schema)
+pydantic==2.13.4
+
+# Testing
+pytest==8.3.5
+pytest-asyncio==0.24.0
+
+# Property-based testing (Phase 2B+)
+hypothesis==6.112.2
+
+# HTTP client for integration tests (Phase 2B+)
+httpx==0.28.1

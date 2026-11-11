@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "skills": {
+    "agent-security-hardening": {
+      "source": "affaan-m/ECC",
+      "sourceType": "github",
+      "skillPath": "skills/agent-security-hardening/SKILL.md",
+      "computedHash": "5f34c60c6a164cb01360ee28603215393894f034f762681cb505e96b89022e5e"
+    },
+    "property-based-testing": {
+      "source": "trailofbits/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/property-based-testing/skills/property-based-testing/SKILL.md",
+      "computedHash": "1fadba845ba4a8f8916bb58f5b61dda6142780851ffb6a5a5ff82574b7798bfa"
+    },
+    "tdd": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/tdd/SKILL.md",
+      "computedHash": "e3e0f78ff1c2d52ffefa0378baa1e80e129d359288cf9a56f4e59afcd2aac86c"
+    }
+  }
+}
