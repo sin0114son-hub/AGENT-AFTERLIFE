@@ -63,3 +63,9 @@ Invariants verified in this run: INV-02 (determinism), INV-08 (error≠defended)
 - Same command after changes: 45 collected, 45 passed, 0 failed; warnings: pytest cache access denied (2), Starlette TestClient deprecation (1).
 - Registry cycle: missing module failed, implementation then 28 passed. Scenario cycle: missing engine failed, implementation then 32 passed. Audit cycle: missing logger failed, implementation then 33 passed. API cycle: missing app failed, implementation then 34 passed. Event limit cycle: 120 events violated cap, fix then 40 passed. Error event cycle: missing RUN_ERROR failed, fix then 41 passed. Cross-run INSERT OR REPLACE vulnerability reproduced, trigger added, then 43 passed. Final security and report tests brought total to 45.
 - Tests use isolated temporary SQLite files. Forced append failure stops SSE before the failing event; concurrent runs and generated sequence lengths were exercised. Actual elapsed-time timeout and client disconnect cancellation remain unverified.
+
+
+## 2026-11-12 Phase 3 integration (Codex)
+Start: 56 backend tests passed with a separate basetemp; default temporary directory had an access error. Next production build and TypeScript passed; lint failed at Attack Lab effect state update.
+After changes: 56 backend tests passed; Next build/TypeScript and lint passed; node --experimental-strip-types --test api.test.mjs passed 5 tests (Node module-type warning). Headless Chromium exercised scenarios, defended and undefended runs through the same-origin Next proxy, reports, comparison and Evidence. Attack Lab viewport width 375px had document width 375px. Actual ASGI disconnect, cancellation/loading/error UI and other mobile pages were not verified.
+Iteration 1: integration changes, build and lint passed; browser flow passed but 375px overflowed. Iteration 2: wrapped navigation/status and protected stale report responses; build, lint, tests and browser flow passed, width 375px.

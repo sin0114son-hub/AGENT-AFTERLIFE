@@ -65,3 +65,7 @@ Verification: `cmd /c "cd frontend && npm run build"` exits 0.
 ## 2026-11-12 remaining Phase 2B work
 
 Restore or replace the broken original `.venv` with appropriate user authorization and rerun the exact required command. Implement and verify actual elapsed-time timeout and SSE disconnect cancellation. Review the documented `mock_read_config` allowlist disagreement before changing policy. Verify production deployment and OS-level isolation separately if later requested; they are outside this phase.
+
+
+## Next priority: Phase 3 verification
+Verify actual ASGI stream disconnect/cancellation and its persisted status (the existing disconnect test reconstructs a separate generator). Exercise cancellation, loading and error states in a browser, including report failures, and validate other pages on narrow screens. Decide scenario 02 read-config intent before changing policy. Confirm hosting, persistent SQLite storage, API_ORIGIN and HTTPS before deployment.

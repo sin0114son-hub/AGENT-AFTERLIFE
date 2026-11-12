@@ -42,3 +42,8 @@
 ## 2026-11-12 Phase 2B work (incomplete)
 
 Added guided registry and policy-driven synthetic execution, SQLite append-only event storage, FastAPI SSE and lookup/report/compare endpoints, and integration/property tests. Preserved existing policy and fixtures. The defended allowlist conflicts with the scenario 02 description; existing policy remains authoritative. Specific endpoint error examples take precedence over the general error envelope. Events commit before SSE per INV-04. Verified 45 passing tests with a separate Python 3.12 environment; original `.venv` is broken. Actual timeout and disconnect handling remain outstanding, so Phase 2B is not marked verified.
+
+
+## 2026-11-12 Phase 3 integration (Codex)
+- Connected existing frontend to API scenario envelope, policy_mode, SSE event IDs, server status, stored events, report failures, and same-origin Next rewrite.
+- Added SSE/API regression tests and narrow Attack Lab navigation handling. Remaining verification and deployment limitations are in PROJECT_STATE.md and NEXT_TASK.md.

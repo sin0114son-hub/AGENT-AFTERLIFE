@@ -77,3 +77,7 @@ C:\AgentAfterlife\.kiro\
 ```
 
 These will be created at Phase 5 start and verified by running a controlled task.
+
+
+## 2026-11-12 Codex continuation
+This continuation used Codex, PowerShell, Git, pytest, npm, Node tests and Playwright; it did not use Kiro, Kiro agents or Ralph. Skills read: ponytail, graphify, webapp-testing. Two implementation/verification iterations are recorded in TEST_BASELINE.md.

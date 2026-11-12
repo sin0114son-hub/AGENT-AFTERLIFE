@@ -278,3 +278,7 @@ All 4xx/5xx responses:
 
 `frontend/lib/types.ts` MUST be generated from or manually kept in sync with `backend/models.py`.
 Any schema change requires updating both files in the same commit.
+
+
+## Local frontend proxy and deployment notes (2026-11-12)
+The Next server rewrites /api/* to API_ORIGIN (default http://127.0.0.1:8000); browser requests are same-origin. Set API_ORIGIN at Next build/config time to the reachable backend origin and use HTTPS at the public edge; hosting and streaming proxy behavior must be verified in the target environment. The backend default SQLite path is backend/agent_afterlife.db and must be writable and placed on persistent storage; local test used an isolated writable database. Independent instances with separate local SQLite files do not share runs; concurrent and distributed deployments require an explicit storage strategy. Restart persistence and target filesystem permissions have not been verified in deployment.
