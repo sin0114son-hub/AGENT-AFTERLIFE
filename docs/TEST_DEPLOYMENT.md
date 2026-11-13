@@ -1,0 +1,7 @@
+# Isolated test deployment
+
+Local development defaults to `AFTERLIFE_AUTH_MODE=local`; do not expose it publicly. For the Render test service and the Vercel preview, set `AFTERLIFE_AUTH_MODE=required` and independently configure the same randomly generated `AFTERLIFE_PROXY_SECRET` in their server-side secret settings. Use at least 32 URL-safe ASCII characters; never use a `NEXT_PUBLIC_` variable, commit the value, or log it. Rotate both values together. The backend rejects every HTTP endpoint without the correct header. There is no public health endpoint.
+
+Render: repository root, Python 3.12.14, build `pip install -r backend/requirements.txt`; one instance and a test-only persistent disk mounted at `/opt/data`. Set `AFTERLIFE_DB_PATH=/opt/data/afterlife-test.db`. Start with `test "$AFTERLIFE_AUTH_MODE" = required && test "$AFTERLIFE_DB_PATH" = /opt/data/afterlife-test.db && exec uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"`. Verify the actual disk mount separately.
+
+Vercel: project root `frontend`, Preview `API_ORIGIN` set to the HTTPS Render origin at build time, with the same required mode and server-only secret. Enable Preview protection where supported. The secret authenticates the server-to-server hop, not the frontend user. Local proxy behavior and deployed Vercel streaming/cancellation must be verified independently; this document is not a deployment approval.

@@ -1,6 +1,10 @@
 ﻿from pathlib import Path
 import hashlib
+import hmac
+import os
+import re
 from uuid import uuid4
+import anyio
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from backend.audit import AuditLog, now
@@ -11,8 +15,31 @@ from backend.scenarios.engine import run_scenario
 
 def create_app(db_path=None):
     app = FastAPI()
+    auth_mode = os.environ.get('AFTERLIFE_AUTH_MODE', 'local')
+    secret = os.environ.get('AFTERLIFE_PROXY_SECRET', '')
+    if auth_mode not in ('local', 'required') or (auth_mode == 'required' and not re.fullmatch(r'[A-Za-z0-9_-]{32,}', secret)):
+        raise ValueError('Invalid backend authentication configuration')
+    if auth_mode == 'required':
+        class Authenticate:
+            def __init__(self, app):
+                self.app = app
+
+            async def __call__(self, scope, receive, send):
+                if scope['type'] == 'http':
+                    values = [value for key, value in scope['headers'] if key.lower() == b'x-afterlife-proxy-secret']
+                    if len(values) != 1 or not hmac.compare_digest(values[0], secret.encode('ascii')):
+                        await JSONResponse({'detail': 'Unauthorized'}, status_code=401)(scope, receive, send)
+                        return
+                await self.app(scope, receive, send)
+        app.add_middleware(Authenticate)
     scenarios = load_scenarios()
-    path = db_path or Path(__file__).parent / 'agent_afterlife.db'
+    configured_path = os.environ.get('AFTERLIFE_DB_PATH') if db_path is None else None
+    if configured_path is not None:
+        path = Path(configured_path)
+        if not configured_path.strip() or not path.is_absolute() or not path.parent.is_dir() or path.is_dir():
+            raise ValueError('AFTERLIFE_DB_PATH must be an absolute file path in an existing directory')
+    else:
+        path = db_path if db_path is not None else Path(__file__).parent / 'agent_afterlife.db'
     app.state.log = None
 
     def log():
@@ -40,43 +67,48 @@ def create_app(db_path=None):
         store = log()
         fixture_hash = hashlib.sha256(scenario.model_dump_json().encode('utf-8')).hexdigest()
         store.create_run(run_id, scenario.scenario_id, request.policy_mode.value, fixture_hash)
-        def stream():
+        async def stream():
             iterator = iter(run_scenario(scenario, request.policy_mode.value, run_id))
             sequence = 0
+            terminal = False
+            def advance():
+                nonlocal sequence, terminal
+                try:
+                    event = next(iterator)
+                except StopIteration:
+                    return None
+                except Exception:
+                    event = AgentEvent(event_id=str(uuid4()), run_id=run_id, scenario_id=scenario.scenario_id,
+                        policy_id=scenario.defended_policy_id if request.policy_mode.value == 'defended' else scenario.undefended_policy_id,
+                        sequence_number=sequence + 1, timestamp=now(), actor='system', event_type='RUN_ERROR', error='Scenario execution failed')
+                store.append(event)
+                sequence = event.sequence_number
+                if event.event_type == 'RUN_COMPLETE':
+                    store.finish(run_id, 'COMPLETE')
+                    terminal = True
+                elif event.event_type in ('EXECUTION_LIMIT_REACHED', 'RUN_ERROR'):
+                    store.finish(run_id, 'ERROR')
+                    terminal = True
+                return event
             try:
                 while True:
-                    try:
-                        event = next(iterator)
-                    except StopIteration:
+                    event = await anyio.to_thread.run_sync(advance)
+                    if event is None:
                         break
-                    except Exception:
-                        event = AgentEvent(event_id=str(uuid4()), run_id=run_id, scenario_id=scenario.scenario_id,
-                            policy_id=scenario.defended_policy_id if request.policy_mode.value == 'defended' else scenario.undefended_policy_id,
-                            sequence_number=sequence + 1, timestamp=now(), actor='system', event_type='RUN_ERROR', error='Scenario execution failed')
-                    store.append(event)
-                    sequence = event.sequence_number
-                    if event.event_type == 'RUN_COMPLETE':
-                        store.finish(run_id, 'COMPLETE')
-                    elif event.event_type in ('EXECUTION_LIMIT_REACHED', 'RUN_ERROR'):
-                        store.finish(run_id, 'ERROR')
                     yield 'data: ' + event.model_dump_json() + '\n\n'
                     if event.event_type == 'RUN_ERROR':
                         break
-            except GeneratorExit:
-                # Client disconnected: stop immediately, record CANCELLED.
-                # Already-committed audit events are preserved.
-                # CANCELLED is never reported as DEFENDED (verdict → ERROR path).
-                try:
-                    store.finish(run_id, 'CANCELLED')
-                except Exception:
-                    pass
-                raise  # re-raise so ASGI transport closes cleanly
             except Exception:
                 try:
                     store.finish(run_id, 'ERROR')
+                    terminal = True
                 except Exception:
                     pass
-        return StreamingResponse(stream(), media_type='text/event-stream')
+            finally:
+                if not terminal:
+                    with anyio.CancelScope(shield=True):
+                        await anyio.to_thread.run_sync(store.finish, run_id, 'CANCELLED')
+        return StreamingResponse(stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache, no-transform'})
 
     @app.get('/api/run/{run_id}')
     def run_info(run_id: str):
