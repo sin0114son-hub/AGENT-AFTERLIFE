@@ -117,6 +117,9 @@ class AgentEvent(BaseModel):
     content_provenance: str | None = None
     mock_result: dict[str, Any] | None = None
     error: str | None = None
+    # Optional. Trust level the policy used for a tool-call decision. Events stored before this
+    # field existed do not have it and load as None.
+    actor_trust_level: int | None = Field(None, ge=0, le=3)
 
     @classmethod
     def hash_args(cls, args: dict[str, Any]) -> str:

@@ -21,6 +21,7 @@ def _make_limit_event(template: AgentEvent) -> AgentEvent:
         "policy_reason_code": None,
         "content_provenance": None,
         "mock_result": None,
+        "actor_trust_level": None,
         "error": "execution limit reached",
     })
 
@@ -60,7 +61,8 @@ def _run_scenario(scenario, mode, run_id, *, start: float, timeout_secs: float):
             call = step.tool_call
             tool = tools[call.tool_name]
             common = dict(tool_name=call.tool_name, tool_args_hash=call.args_hash,
-                          content_provenance=step.content_provenance_source_type)
+                          content_provenance=step.content_provenance_source_type,
+                          actor_trust_level=step.actor_trust_level)
             yield event(EventType.TOOL_CALL_PROPOSED, step.actor, **common)
             decision = evaluate(PolicyContext(
                 actor_id=step.actor,

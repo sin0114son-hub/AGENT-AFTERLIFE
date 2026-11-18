@@ -2,6 +2,7 @@
 import { useCallback, useRef, useState } from "react";
 import { api } from "./api";
 import type { AgentEvent, RunStatus, PolicyMode } from "./types";
+import { userMessage } from "./errors.ts";
 
 export interface SimulationState {
   status: RunStatus | "idle" | "DISCONNECTED";
@@ -27,7 +28,7 @@ export function useSimulation() {
       if (controller.signal.aborted) {
         setState(prev => ({...prev, status: "CANCELLED", error: "Cancelled locally; server status may differ."}));
       } else {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = userMessage(error, "start");
         setState(prev => ({...prev, status: prev.runId ? "DISCONNECTED" : "ERROR", error: message}));
       }
     });

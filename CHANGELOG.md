@@ -1,5 +1,13 @@
 # Agent Afterlife — Changelog
 
+## [Guided evidence explanations] 2026-11-18 (not committed)
+
+See `.kiro/specs/guided-evidence-explanations/`.
+- Time Machine, Evidence and Attack Lab show the first event difference and the key policy decision separately, from audit events.
+- `AgentEvent.actor_trust_level` (optional; older stored events still load). `/api/compare` and `/api/report` add `critical_tool` and key decision fields.
+- Defended policy allowlist includes `mock_read_config`, so scenario 02 matches its fixture text.
+- Gemini: observation runs on the displayed text; truncation is reported; access code is checked before the ledger is opened; server requires `external_send_consent`.
+- Attack Lab: copy run ID, Evidence and Compare links, result-first reading order. Tables show a scroll hint. API errors no longer show URLs or raw JSON. Playground clears the old result on blank input.
 ## [Phase 2A] 2026-11-12 — Backend Foundation COMPLETE_VERIFIED
 
 ### Added

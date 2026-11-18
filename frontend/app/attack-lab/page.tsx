@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { api } from "../lib/api";
+import { userMessage } from "../lib/errors";
 import { useSimulation } from "../lib/useSimulation";
 import { buildGraph } from "../lib/graphUtils";
+import { keyDecisionSentence, trustText } from "../lib/explain";
 import type { ScenarioSummary, Report, PolicyMode } from "../lib/types";
+import DecisionCard from "../components/DecisionCard";
 
 // React Flow must be dynamically imported (no SSR) due to browser-only APIs
 const ReactFlowGraph = dynamic(() => import("../components/ReactFlowGraph"), {
   ssr: false,
-  loading: () => (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400, color: "var(--text-muted)", fontSize: 14 }}>
-      Loading graph…
-    </div>
-  ),
+  loading: () => <div className="graph-loading">Loading graph…</div>,
 });
 
 const VERDICT_COLOR: Record<string, string> = {
@@ -24,13 +24,6 @@ const VERDICT_COLOR: Record<string, string> = {
   INCONCLUSIVE: "var(--text-muted)",
 };
 
-const VERDICT_ICON: Record<string, string> = {
-  DEFENDED: "🛡",
-  VULNERABLE: "⚠️",
-  ERROR: "💥",
-  INCONCLUSIVE: "❓",
-};
-
 export default function AttackLabPage() {
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [selectedScenario, setSelectedScenario] = useState<string>("");
@@ -38,10 +31,13 @@ export default function AttackLabPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
   const [scenariosError, setScenariosError] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState("");
+  // Completed runs of this page visit, so a defended and an undefended run can be compared with one click.
+  const [completed, setCompleted] = useState<Record<string, string>>({});
+  const started = useRef<{ scenario: string; mode: PolicyMode } | null>(null);
 
   const [sim, controls] = useSimulation();
 
-  // Load scenarios on mount
   useEffect(() => {
     api
       .listScenarios()
@@ -49,17 +45,21 @@ export default function AttackLabPage() {
         setScenarios(list);
         if (list.length > 0) setSelectedScenario(list[0].scenario_id);
       })
-      .catch((e: Error) => setScenariosError(e.message));
+      .catch((e: unknown) => setScenariosError(userMessage(e, "scenarios")));
   }, []);
 
-  // Fetch report when run completes
   useEffect(() => {
     if (sim.status !== "COMPLETE" || !sim.runId) return;
     let active = true;
+    const runId = sim.runId;
+    if (started.current) {
+      const key = `${started.current.scenario}:${started.current.mode}`;
+      setCompleted((prev) => ({ ...prev, [key]: runId }));
+    }
     api
-      .getReport(sim.runId)
+      .getReport(runId)
       .then((value) => { if (active) setReport(value); })
-      .catch((error: Error) => { if (active) setReportError(error.message); });
+      .catch((error: unknown) => { if (active) setReportError(userMessage(error, "report")); });
     return () => { active = false; };
   }, [sim.status, sim.runId]);
 
@@ -67,350 +67,162 @@ export default function AttackLabPage() {
     if (!selectedScenario) return;
     setReport(null);
     setReportError(null);
+    setCopyMessage("");
+    started.current = { scenario: selectedScenario, mode };
     controls.start(selectedScenario, mode);
   }, [selectedScenario, mode, controls]);
 
-  const { nodes, edges } = buildGraph(sim.events);
+  async function copyRunId() {
+    if (!sim.runId) return;
+    try {
+      await navigator.clipboard.writeText(sim.runId);
+      setCopyMessage("Run ID copied.");
+    } catch {
+      setCopyMessage("Copy is not available here. Select the run ID text and copy it yourself.");
+    }
+  }
 
+  const { nodes, edges } = buildGraph(sim.events);
   const currentScenario = scenarios.find((s) => s.scenario_id === selectedScenario);
+  const undefendedId = completed[`${selectedScenario}:undefended`];
+  const defendedId = completed[`${selectedScenario}:defended`];
 
   const reportLoading = sim.status === "COMPLETE" && !report && !reportError;
   const isRunning = sim.status === "RUNNING";
   const canStart = !isRunning && !!selectedScenario && !scenariosError;
 
   return (
-    <div style={{ padding: "2rem", maxWidth: 1400, margin: "0 auto" }}>
-      {/* Header */}
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ fontSize: "1.75rem", fontWeight: 800, letterSpacing: "-0.02em", marginBottom: "0.25rem" }}>
-          🔴 Attack Lab
-        </h1>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-          Select a scenario, choose a policy mode, and observe real-time agent behavior.
-        </p>
-      </div>
+    <div className="lab-page wide">
+      <h1>Attack Lab</h1>
+      <p className="lead">Choose a synthetic scenario and a policy, then follow the run as it unfolds.</p>
 
-      {/* Controls row */}
-      <div
-        style={{
-          display: "flex",
-          gap: "1rem",
-          alignItems: "flex-end",
-          flexWrap: "wrap",
-          padding: "1.25rem",
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 10,
-          marginBottom: "1.5rem",
-        }}
-      >
-        {/* Scenario selector */}
-        <div style={{ flex: "2 1 240px" }}>
-          <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.4rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Scenario
-          </label>
+      <div className="panel input-row">
+        <div className="field grow">
+          <label htmlFor="scenario-select">Scenario</label>
           {scenariosError ? (
-            <p style={{ color: "var(--attack)", fontSize: 13 }}>⚠ Backend unavailable — start FastAPI first</p>
+            <p role="alert" className="alert">{scenariosError}</p>
           ) : (
-            <select
-              value={selectedScenario}
-              onChange={(e) => setSelectedScenario(e.target.value)}
-              disabled={isRunning}
-              aria-label="Select scenario"
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.75rem",
-                background: "var(--surface-2)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                color: "var(--text)",
-                fontSize: 14,
-                cursor: isRunning ? "not-allowed" : "pointer",
-              }}
-            >
-              {scenarios.map((s) => (
-                <option key={s.scenario_id} value={s.scenario_id}>
-                  {s.name}
-                </option>
-              ))}
+            <select id="scenario-select" aria-label="Select scenario" value={selectedScenario} onChange={(e) => setSelectedScenario(e.target.value)} disabled={isRunning}>
+              {scenarios.map((s) => <option key={s.scenario_id} value={s.scenario_id}>{s.name}</option>)}
             </select>
           )}
         </div>
 
-        {/* Mode selector */}
-        <div style={{ flex: "1 1 180px" }}>
-          <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.4rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Policy Mode
-          </label>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div className="field">
+          <span className="label-text" id="mode-label">Policy mode</span>
+          <div className="button-pair" role="group" aria-labelledby="mode-label">
             {(["defended", "undefended"] as PolicyMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                disabled={isRunning}
-                aria-pressed={mode === m}
-                style={{
-                  flex: 1,
-                  padding: "0.5rem",
-                  borderRadius: 6,
-                  border: `1px solid ${mode === m ? (m === "defended" ? "var(--defense)" : "var(--attack)") : "var(--border)"}`,
-                  background: mode === m ? (m === "defended" ? "rgba(52,211,153,0.15)" : "rgba(251,113,133,0.15)") : "transparent",
-                  color: mode === m ? (m === "defended" ? "var(--defense)" : "var(--attack)") : "var(--text-dim)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: isRunning ? "not-allowed" : "pointer",
-                  textTransform: "capitalize",
-                }}
-              >
-                {m === "defended" ? "🛡 Defended" : "⚠️ Undefended"}
+              <button key={m} type="button" onClick={() => setMode(m)} disabled={isRunning} aria-pressed={mode === m}
+                className={`action toggle ${m}`}>
+                {m === "defended" ? "Defended" : "Undefended"}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div style={{ display: "flex", gap: "0.5rem", alignSelf: "flex-end" }}>
-          <button
-            onClick={handleStart}
-            disabled={!canStart}
-            aria-label="Start simulation"
-            style={{
-              padding: "0.5rem 1.5rem",
-              borderRadius: 6,
-              background: canStart ? "var(--agent)" : "var(--border)",
-              color: canStart ? "#0B1020" : "var(--text-muted)",
-              fontWeight: 700,
-              fontSize: 14,
-              border: "none",
-              cursor: canStart ? "pointer" : "not-allowed",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {isRunning ? "Running…" : "▶ Run"}
+        <div className="button-pair">
+          <button type="button" onClick={handleStart} disabled={!canStart} aria-label={isRunning ? "Running" : "Start simulation"} className="action primary">
+            {isRunning ? "Running…" : "Start simulation"}
           </button>
-          {isRunning && (
-            <button
-              onClick={controls.abort}
-              aria-label="Cancel simulation"
-              style={{
-                padding: "0.5rem 1rem",
-                borderRadius: 6,
-                background: "transparent",
-                border: "1px solid var(--attack)",
-                color: "var(--attack)",
-                fontWeight: 600,
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              ✕ Cancel
-            </button>
-          )}
+          {isRunning && <button type="button" onClick={controls.abort} aria-label="Cancel simulation" className="action danger">Cancel</button>}
         </div>
       </div>
 
-      {/* Scenario metadata */}
       {currentScenario && (
-        <div
-          style={{
-            padding: "0.875rem 1.25rem",
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            marginBottom: "1.5rem",
-            display: "flex",
-            gap: "2rem",
-            flexWrap: "wrap",
-            fontSize: 13,
-          }}
-        >
-          <span><span style={{ color: "var(--text-muted)" }}>ID: </span><code style={{ color: "var(--agent)" }}>{currentScenario.scenario_id}</code></span>
-          <span><span style={{ color: "var(--text-muted)" }}>Attack: </span><span style={{ color: "var(--attack)" }}>{currentScenario.attack_category}</span></span>
-          <span><span style={{ color: "var(--text-muted)" }}>Steps: </span>{currentScenario.step_count}</span>
-          <span style={{ color: "var(--text-dim)", fontStyle: "italic" }}>{currentScenario.description}</span>
+        <div className="panel meta">
+          <span><span className="muted">ID: </span><code>{currentScenario.scenario_id}</code></span>
+          <span><span className="muted">Attack: </span>{currentScenario.attack_category}</span>
+          <span><span className="muted">Steps: </span>{currentScenario.step_count}</span>
+          <span className="muted">{currentScenario.description}</span>
         </div>
       )}
 
-      {/* Status bar */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          flexWrap: "wrap",
-          overflowWrap: "anywhere",
-          gap: "0.75rem",
-          padding: "0.625rem 1rem",
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 6,
-          marginBottom: "1rem",
-          fontSize: 13,
-        }}
-      >
-        {isRunning && (
-          <span
-            className="pulse-dot"
-            style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--agent)", display: "inline-block", flexShrink: 0 }}
-            aria-hidden
-          />
-        )}
-        <span style={{ color: "var(--text-dim)" }}>
-          Status:{" "}
-          <strong
-            style={{
-              color:
-                sim.status === "COMPLETE" ? "var(--defense)"
-                : sim.status === "RUNNING" ? "var(--agent)"
-                : sim.status === "ERROR" ? "var(--attack)"
-                : sim.status === "CANCELLED" ? "var(--warning)"
-                : "var(--text-muted)",
-            }}
-          >
-            {sim.status.toUpperCase()}
-          </strong>
-        </span>
-        <span style={{ color: "var(--text-muted)" }}>·</span>
-        <span style={{ color: "var(--text-dim)" }}>Events: {sim.events.length}</span>
-        {sim.runId && (
-          <>
-            <span style={{ color: "var(--text-muted)" }}>·</span>
-            <span style={{ color: "var(--text-muted)" }}>
-              Run: <code style={{ color: "var(--text-dim)", fontSize: 11 }}>{sim.runId}</code>
-            </span>
-          </>
-        )}
-        {sim.error && (
-          <span style={{ color: "var(--attack)", marginLeft: "auto" }}>⚠ {sim.error}</span>
-        )}
+      <div role="status" className="panel status-bar">
+        {isRunning && <span className="pulse-dot dot" aria-hidden />}
+        <span>Status: <strong>{sim.status.toUpperCase()}</strong></span>
+        <span>Events: {sim.events.length}</span>
+        {sim.error && <span className="result-deny">{sim.error}</span>}
       </div>
 
-      {/* Main layout: graph + event list */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: "1rem", alignItems: "start" }}>
-        {/* Graph */}
-        <div
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            overflow: "hidden",
-            height: 480,
-            background: "var(--surface)",
-          }}
-        >
-          <ReactFlowGraph nodes={nodes} edges={edges} />
-        </div>
-
-        {/* Event timeline */}
-        <div
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            background: "var(--surface)",
-            height: 480,
-            overflow: "hidden",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <div style={{ padding: "0.75rem 1rem", borderBottom: "1px solid var(--border)", fontSize: 12, fontWeight: 700, color: "var(--text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Event Timeline
+      {sim.runId && (
+        <section className="panel" aria-labelledby="run-id-title">
+          <h2 id="run-id-title">Run ID</h2>
+          <p><code className="run-id" data-testid="run-id">{sim.runId}</code></p>
+          <div className="button-pair wrap">
+            <button type="button" className="action" onClick={copyRunId}>Copy run ID</button>
+            {sim.status === "COMPLETE" && <Link className="action" href={`/evidence?run_id=${encodeURIComponent(sim.runId)}`}>Open in Evidence</Link>}
+            {undefendedId && defendedId && <Link className="action" href={`/time-machine?run_a=${encodeURIComponent(undefendedId)}&run_b=${encodeURIComponent(defendedId)}`}>Compare undefended and defended runs</Link>}
           </div>
-          <div style={{ overflowY: "auto", flex: 1, padding: "0.5rem" }}>
-            {sim.events.length === 0 ? (
-              <p style={{ color: "var(--text-muted)", fontSize: 13, padding: "1rem", textAlign: "center" }}>
-                {sim.status === "idle" ? "Press ▶ Run to start" : "Waiting for events…"}
-              </p>
-            ) : (
-              sim.events.map((ev) => {
-                const isDeny = ev.event_type === "TOOL_CALL_DENIED" || ev.event_type === "TRUST_CHECK_FAILED" || ev.event_type === "INJECTION_DETECTED";
-                const isAllow = ev.event_type === "TOOL_CALL_EXECUTED";
-                const color = isDeny ? "var(--attack)" : isAllow ? "var(--defense)" : "var(--text-dim)";
-                return (
-                  <div
-                    key={ev.event_id}
-                    style={{
-                      padding: "0.5rem 0.75rem",
-                      marginBottom: "0.375rem",
-                      borderRadius: 6,
-                      border: `1px solid ${isDeny ? "rgba(251,113,133,0.3)" : isAllow ? "rgba(52,211,153,0.3)" : "var(--border)"}`,
-                      background: isDeny ? "rgba(251,113,133,0.05)" : isAllow ? "rgba(52,211,153,0.05)" : "transparent",
-                      fontSize: 12,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                      <span style={{ color, fontWeight: 600 }}>
-                        #{ev.sequence_number} {ev.event_type.replace(/_/g, " ")}
-                      </span>
-                      {ev.policy_outcome && (
-                        <span style={{ fontSize: 10, color: isDeny ? "var(--attack)" : "var(--defense)", fontWeight: 700 }}>
-                          {ev.policy_outcome}
-                        </span>
-                      )}
-                    </div>
-                    {ev.tool_name && (
-                      <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
-                        tool: <code style={{ color: "var(--warning)" }}>{ev.tool_name}</code>
-                      </div>
-                    )}
-                    {ev.policy_reason_code && (
-                      <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
-                        reason: {ev.policy_reason_code}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
+          <p role="status" className="muted">{copyMessage}</p>
+          {sim.status === "COMPLETE" && !(undefendedId && defendedId) && (
+            <p className="muted">To compare, run this scenario once undefended and once defended. A Compare link then appears here.</p>
+          )}
+        </section>
+      )}
 
-      {reportError && <p role="alert">Report unavailable: {reportError}</p>}
-      <p>These are synthetic scenarios using mock tools; no real agent actions occur.</p>
-      {/* Report */}
+      {reportError && <p role="alert" className="alert">Report unavailable. {reportError}</p>}
       {(reportLoading || report) && (
-        <div
-          style={{
-            marginTop: "1.5rem",
-            padding: "1.25rem",
-            background: "var(--surface)",
-            border: `1px solid ${report ? VERDICT_COLOR[report.verdict] ?? "var(--border)" : "var(--border)"}`,
-            borderRadius: 10,
-          }}
-        >
-          {reportLoading && <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading report…</p>}
+        <section className="panel" aria-labelledby="report-title" style={{ borderColor: report ? VERDICT_COLOR[report.verdict] ?? "var(--border)" : "var(--border)" }}>
+          <h2 id="report-title">Result</h2>
+          {reportLoading && <p className="muted">Loading report…</p>}
           {report && (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1rem" }}>
-                <span style={{ fontSize: "2rem" }}>{VERDICT_ICON[report.verdict]}</span>
-                <div>
-                  <div style={{ fontSize: "1.25rem", fontWeight: 800, color: VERDICT_COLOR[report.verdict] }}>
-                    {report.verdict}
-                  </div>
-                  <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{report.verdict_evidence}</div>
-                </div>
+              <p className="verdict-word" style={{ color: VERDICT_COLOR[report.verdict] }}>{report.verdict}</p>
+              <p>{report.verdict_evidence}</p>
+              <h3>Key policy decision{report.critical_tool ? `: ${report.critical_tool}` : ""}</h3>
+              <p>{keyDecisionSentence(report.key_decision, report.critical_tool)}</p>
+              <div className="decision-grid">
+                <DecisionCard heading="Recorded decision" event={report.key_decision} emptyText="This run did not reach the key decision." />
               </div>
-              <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", fontSize: 13 }}>
-                {[
+              <ul className="facts">
+                {([
                   ["Proposed", report.summary.tool_calls_proposed],
                   ["Allowed", report.summary.tool_calls_allowed],
                   ["Denied", report.summary.tool_calls_denied],
                   ["Injections", report.summary.injections_detected],
-                  ["Trust Violations", report.summary.trust_violations],
-                ].map(([label, val]) => (
-                  <div key={String(label)}>
-                    <span style={{ color: "var(--text-muted)" }}>{label}: </span>
-                    <strong style={{ color: "var(--text)" }}>{val}</strong>
-                  </div>
-                ))}
-              </div>
-              <p style={{ marginTop: "0.75rem", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                ⚠ Mode A: These results are fixture-driven synthetic simulations.
-                They do not represent real AI model behavior.
-              </p>
+                  ["Trust violations", report.summary.trust_violations],
+                ] as const).map(([label, val]) => <li key={label}><span className="muted">{label}: </span><strong>{val}</strong></li>)}
+              </ul>
+              <p className="note">Mode A: these results are fixture-driven synthetic simulations. They do not represent real AI model behavior.</p>
             </>
           )}
-        </div>
+        </section>
       )}
+
+      <section className="panel timeline" aria-labelledby="timeline-title">
+        <h2 id="timeline-title">Event timeline</h2>
+        {sim.events.length === 0 ? (
+          <p className="muted">{sim.status === "idle" ? "Choose a scenario and a mode, then start the simulation." : "Waiting for events…"}</p>
+        ) : (
+          <ol className="timeline-list">
+            {sim.events.map((ev) => {
+              const deny = ev.event_type === "TOOL_CALL_DENIED" || ev.event_type === "TRUST_CHECK_FAILED" || ev.event_type === "INJECTION_DETECTED";
+              const allow = ev.event_type === "TOOL_CALL_EXECUTED";
+              const isKey = report?.key_decision?.event_id === ev.event_id;
+              return (
+                <li key={ev.event_id} className={`timeline-item${deny ? " deny" : allow ? " allow" : ""}`}>
+                  <div className="timeline-head">
+                    <span className={deny ? "result-deny" : allow ? "result-allow" : undefined}><strong>#{ev.sequence_number} {ev.event_type.replace(/_/g, " ")}</strong></span>
+                    {ev.policy_outcome && <strong className={deny ? "result-deny" : "result-allow"}>{ev.policy_outcome}</strong>}
+                  </div>
+                  {ev.tool_name && <div className="muted">tool: <code>{ev.tool_name}</code></div>}
+                  {ev.policy_reason_code && <div className="muted">reason: {ev.policy_reason_code}</div>}
+                  {ev.event_type.startsWith("TOOL_CALL") && ev.actor_trust_level !== undefined && ev.actor_trust_level !== null && <div className="muted">source trust level: {trustText(ev.actor_trust_level)}</div>}
+                  {isKey && <div><strong>Key policy decision</strong></div>}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </section>
+
+      <section className="panel graph-panel" aria-labelledby="graph-title">
+        <h2 id="graph-title">Event graph</h2>
+        <p className="muted">A visual summary of the same events. The timeline above lists them in order and is the better way to read the result with a keyboard or a screen reader.</p>
+        <div className="graph-frame"><ReactFlowGraph nodes={nodes} edges={edges} /></div>
+      </section>
+
+      <p className="note">These are synthetic scenarios using mock tools; no real agent actions occur.</p>
     </div>
   );
 }

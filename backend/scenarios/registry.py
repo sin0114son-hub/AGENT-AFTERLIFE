@@ -3,6 +3,20 @@ from backend.models import ScenarioDefinition
 from backend.policy.engine import get_policy
 
 
+# The tool whose allow or deny decision is the point of each guided scenario.
+# Report and compare both read this one map.
+CRITICAL_TOOL = {
+    'scenario_01_prompt_injection': 'mock_data_exfiltrate',
+    'scenario_02_trust_escalation': 'mock_config_write',
+}
+
+
+def key_decision(events, scenario_id):
+    """First executed or denied event of the scenario's critical tool, or None."""
+    tool = CRITICAL_TOOL[scenario_id]
+    return next((e for e in events if e.tool_name == tool and e.event_type in ('TOOL_CALL_EXECUTED', 'TOOL_CALL_DENIED')), None)
+
+
 def load_scenarios():
     scenarios = {}
     for path in sorted((Path(__file__).parent / 'fixtures').glob('scenario_*.json')):

@@ -89,7 +89,7 @@ POLICY_DEFENDED = PolicyConfig(
     policy_id="policy_defended_v1",
     enforce_trust_levels=True,
     enforce_injection_detection=True,
-    allowed_tools=["mock_web_search", "mock_read_file"],   # explicit allowlist
+    allowed_tools=["mock_web_search", "mock_read_file", "mock_read_config"],   # explicit allowlist (user-tier, read-only tools)
     admin_tools=["mock_data_exfiltrate", "mock_config_write"],  # requires trust >= 2
 )
 

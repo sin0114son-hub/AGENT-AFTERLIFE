@@ -1,16 +1,18 @@
-﻿from pathlib import Path
+from pathlib import Path
 import hashlib
 import hmac
 import os
 import re
 from uuid import uuid4
 import anyio
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from backend.audit import AuditLog, now
 from backend.models import RunRequest, AgentEvent
-from backend.scenarios.registry import load_scenarios
+from backend.scenarios.registry import CRITICAL_TOOL, key_decision, load_scenarios
 from backend.scenarios.engine import run_scenario
+from backend.simulation import SimulationRequest, simulate
+from backend.gemini_live import LiveRequest, evaluate_live, live_configured
 
 
 def create_app(db_path=None):
@@ -58,6 +60,18 @@ def create_app(db_path=None):
         return {'scenarios': [dict(scenario_id=s.scenario_id, name=s.name, description=s.description,
                 attack_category=s.attack_category, supported_modes=s.supported_modes, step_count=len(s.steps)) for s in scenarios.values()]}
 
+    @app.post('/api/simulate')
+    def simulate_input(request: SimulationRequest):
+        return simulate(request)
+
+    @app.get('/api/evaluate/gemini/status')
+    def gemini_status():
+        return JSONResponse({'enabled': live_configured(), 'requires_access_code': True}, headers={'Cache-Control': 'no-store'})
+
+    @app.post('/api/evaluate/gemini')
+    def gemini_evaluation(request: LiveRequest, x_afterlife_live_code: str | None = Header(default=None)):
+        return evaluate_live(request, x_afterlife_live_code)
+
     @app.post('/api/run')
     def start(request: RunRequest):
         scenario = scenarios.get(request.scenario_id)
@@ -65,8 +79,9 @@ def create_app(db_path=None):
             return JSONResponse(status_code=404, content={'detail': 'Scenario not found', 'scenario_id': request.scenario_id})
         run_id = str(uuid4())
         store = log()
-        fixture_hash = hashlib.sha256(scenario.model_dump_json().encode('utf-8')).hexdigest()
-        store.create_run(run_id, scenario.scenario_id, request.policy_mode.value, fixture_hash)
+        # Bump this revision when guided policy semantics change, even if fixtures do not.
+        run_version = hashlib.sha256(f'guided-v2:{scenario.model_dump_json()}'.encode('utf-8')).hexdigest()
+        store.create_run(run_id, scenario.scenario_id, request.policy_mode.value, run_version)
         async def stream():
             iterator = iter(run_scenario(scenario, request.policy_mode.value, run_id))
             sequence = 0
@@ -124,7 +139,7 @@ def create_app(db_path=None):
     def report(run_id: str):
         run = get_run(run_id)
         ev = log().events(run_id)
-        attack = {'scenario_01_prompt_injection': 'mock_data_exfiltrate', 'scenario_02_trust_escalation': 'mock_config_write'}[run['scenario_id']]
+        attack = CRITICAL_TOOL[run['scenario_id']]
         critical = [e for e in ev if e.tool_name == attack]
         executed = next((e for e in critical if e.event_type == 'TOOL_CALL_EXECUTED'), None)
         denied = next((e for e in critical if e.event_type == 'TOOL_CALL_DENIED'), None)
@@ -135,6 +150,7 @@ def create_app(db_path=None):
         count = lambda kind: sum(e.event_type == kind for e in ev)
         return {'report_id': str(uuid4()), 'run_id': run_id, 'scenario_id': run['scenario_id'], 'policy_mode': run['policy_mode'], 'generated_at': now(),
                 'summary': {'total_events': len(ev), 'tool_calls_proposed': count('TOOL_CALL_PROPOSED'), 'tool_calls_allowed': count('TOOL_CALL_EXECUTED'), 'tool_calls_denied': count('TOOL_CALL_DENIED'), 'injections_detected': count('INJECTION_DETECTED'), 'trust_violations': sum(e.policy_reason_code == 'TRUST_LEVEL_INSUFFICIENT' for e in ev), 'execution_errors': count('RUN_ERROR'), 'timeouts': int(run['status'] == 'TIMEOUT')},
+                'critical_tool': attack, 'key_decision': key_decision(ev, run['scenario_id']),
                 'verdict': verdict, 'verdict_evidence': f'{attack}: {evidence.event_type.value} at sequence_number={evidence.sequence_number}' if evidence else 'Critical decision not reached', 'events': ev}
 
     @app.get('/api/compare')
@@ -149,7 +165,7 @@ def create_app(db_path=None):
             diff = 'EVENT_MISSING_A' if x is None else 'EVENT_MISSING_B' if y is None else 'SAME' if (x.event_type, x.actor, x.tool_name, x.policy_outcome) == (y.event_type, y.actor, y.tool_name, y.policy_outcome) else 'OUTCOME_DIFFERS'
             aligned.append({'sequence': i + 1, 'event_a': x, 'event_b': y, 'diff': diff})
         first = next((v for v in aligned if v['diff'] != 'SAME'), None)
-        return {'run_a': {'run_id': run_a, 'policy_mode': a['policy_mode']}, 'run_b': {'run_id': run_b, 'policy_mode': b['policy_mode']}, 'scenario_id': a['scenario_id'], 'first_divergence_sequence': first['sequence'] if first else None, 'divergence_event_a': first['event_a'] if first else None, 'divergence_event_b': first['event_b'] if first else None, 'aligned_steps': aligned}
+        return {'run_a': {'run_id': run_a, 'policy_mode': a['policy_mode']}, 'run_b': {'run_id': run_b, 'policy_mode': b['policy_mode']}, 'scenario_id': a['scenario_id'], 'critical_tool': CRITICAL_TOOL[a['scenario_id']], 'key_decision_a': key_decision(ea, a['scenario_id']), 'key_decision_b': key_decision(eb, a['scenario_id']), 'first_divergence_sequence': first['sequence'] if first else None, 'divergence_event_a': first['event_a'] if first else None, 'divergence_event_b': first['event_b'] if first else None, 'aligned_steps': aligned}
     return app
 
 

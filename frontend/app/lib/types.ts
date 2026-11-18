@@ -47,6 +47,8 @@ export interface AgentEvent {
   content_provenance?: string | null;
   mock_result?: Record<string, unknown> | null;
   error?: string | null;
+  /** Trust level the policy used for a tool-call decision. Absent or null on older events and on non-tool events. */
+  actor_trust_level?: number | null;
 }
 
 export interface ScenarioSummary {
@@ -89,6 +91,10 @@ export interface Report {
   summary: ReportSummary;
   verdict: VerdictCode;
   verdict_evidence: string;
+  /** Tool whose allow or deny decision is the point of the scenario. */
+  critical_tool?: string;
+  /** First executed or denied event of that tool, or null when the run never reached it. */
+  key_decision?: AgentEvent | null;
   events: AgentEvent[];
 }
 
@@ -103,6 +109,9 @@ export interface CompareResult {
   run_a: { run_id: string; policy_mode: PolicyMode };
   run_b: { run_id: string; policy_mode: PolicyMode };
   scenario_id: string;
+  critical_tool?: string;
+  key_decision_a?: AgentEvent | null;
+  key_decision_b?: AgentEvent | null;
   first_divergence_sequence: number | null;
   divergence_event_a: AgentEvent | null;
   divergence_event_b: AgentEvent | null;

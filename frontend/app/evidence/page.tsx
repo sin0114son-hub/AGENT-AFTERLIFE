@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../lib/api";
+import { userMessage } from "../lib/errors";
+import { keyDecisionSentence, trustText } from "../lib/explain";
 import type { Report } from "../lib/types";
+import DecisionCard from "../components/DecisionCard";
+import ScrollTable from "../components/ScrollTable";
 
 const VERDICT_COLOR: Record<string, string> = {
   DEFENDED: "var(--defense)",
@@ -17,195 +21,112 @@ export default function EvidencePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleFetch() {
-    if (!runId.trim()) return;
+  const fetchReport = useCallback(async (id: string) => {
+    if (!id.trim()) return;
     setLoading(true);
     setError(null);
     setReport(null);
     try {
-      const r = await api.getReport(runId.trim());
-      setReport(r);
+      setReport(await api.getReport(id.trim()));
     } catch (e) {
-      setError((e as Error).message);
+      setError(userMessage(e, "report"));
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Attack Lab links here with ?run_id=... so the report opens without pasting.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const id = new URLSearchParams(window.location.search).get("run_id");
+      if (id) { setRunId(id); void fetchReport(id); }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchReport]);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void fetchReport(runId);
   }
 
   return (
-    <div style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
-      <h1 style={{ fontSize: "1.75rem", fontWeight: 800, letterSpacing: "-0.02em", marginBottom: "0.25rem" }}>
-        📋 Evidence Report
-      </h1>
-      <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginBottom: "1.5rem" }}>
-        Retrieve the structured security evidence for any completed run.
-      </p>
+    <div className="lab-page narrow">
+      <h1>Evidence Report</h1>
+      <p className="lead">Retrieve the structured security evidence for any completed run.</p>
 
-      {/* Input */}
-      <div
-        style={{
-          display: "flex",
-          gap: "0.75rem",
-          alignItems: "flex-end",
-          padding: "1.25rem",
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 10,
-          marginBottom: "1.5rem",
-        }}
-      >
-        <div style={{ flex: 1 }}>
-          <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.4rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Run ID
-          </label>
-          <input
-            type="text"
-            value={runId}
-            onChange={(e) => setRunId(e.target.value)}
-            placeholder="Paste a run UUID from Attack Lab"
-            aria-label="Run ID"
-            onKeyDown={(e) => e.key === "Enter" && handleFetch()}
-            style={{
-              width: "100%",
-              padding: "0.5rem 0.75rem",
-              background: "var(--surface-2)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              color: "var(--text)",
-              fontSize: 13,
-              fontFamily: "monospace",
-            }}
-          />
+      <form className="panel input-row" onSubmit={submit}>
+        <div className="field">
+          <label htmlFor="run-id">Run ID</label>
+          <input id="run-id" type="text" value={runId} onChange={(e) => setRunId(e.target.value)} placeholder="Paste a run ID from Attack Lab" autoComplete="off" spellCheck={false} className="mono" />
         </div>
-        <button
-          onClick={handleFetch}
-          disabled={loading || !runId.trim()}
-          style={{
-            padding: "0.5rem 1.25rem",
-            borderRadius: 6,
-            background: !loading && runId.trim() ? "var(--agent)" : "var(--border)",
-            color: !loading && runId.trim() ? "#0B1020" : "var(--text-muted)",
-            fontWeight: 700,
-            fontSize: 14,
-            border: "none",
-            cursor: !loading && runId.trim() ? "pointer" : "not-allowed",
-            alignSelf: "flex-end",
-          }}
-        >
-          {loading ? "Loading…" : "Fetch"}
-        </button>
-      </div>
+        <button type="submit" className="action primary" disabled={loading || !runId.trim()}>{loading ? "Loading…" : "Fetch"}</button>
+      </form>
 
-      {error && (
-        <div style={{ padding: "0.875rem", background: "rgba(251,113,133,0.1)", border: "1px solid var(--attack)", borderRadius: 8, color: "var(--attack)", fontSize: 13, marginBottom: "1rem" }}>
-          ⚠ {error}
-        </div>
-      )}
+      {error && <div role="alert" className="alert">{error}</div>}
 
       {report && (
         <>
-          {/* Verdict card */}
-          <div
-            style={{
-              padding: "1.25rem",
-              background: "var(--surface)",
-              border: `2px solid ${VERDICT_COLOR[report.verdict] ?? "var(--border)"}`,
-              borderRadius: 10,
-              marginBottom: "1.5rem",
-              display: "flex",
-              gap: "1.25rem",
-              alignItems: "flex-start",
-            }}
-          >
-            <div style={{ fontSize: "2.5rem", lineHeight: 1 }}>
-              {report.verdict === "DEFENDED" ? "🛡" : report.verdict === "VULNERABLE" ? "⚠️" : report.verdict === "ERROR" ? "💥" : "❓"}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: VERDICT_COLOR[report.verdict] }}>
-                {report.verdict}
-              </div>
-              <div style={{ color: "var(--text-dim)", fontSize: 14, marginTop: "0.25rem" }}>{report.verdict_evidence}</div>
-              <div style={{ display: "flex", gap: "1.5rem", marginTop: "0.75rem", flexWrap: "wrap", fontSize: 13 }}>
-                {[
-                  ["Scenario", report.scenario_id],
-                  ["Mode", report.policy_mode],
-                  ["Total events", report.summary.total_events],
-                  ["Proposed", report.summary.tool_calls_proposed],
-                  ["Allowed", report.summary.tool_calls_allowed],
-                  ["Denied", report.summary.tool_calls_denied],
-                  ["Injections", report.summary.injections_detected],
-                ].map(([label, val]) => (
-                  <div key={String(label)}>
-                    <span style={{ color: "var(--text-muted)" }}>{label}: </span>
-                    <strong style={{ color: "var(--text)" }}>{val}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <section className="panel verdict" style={{ borderColor: VERDICT_COLOR[report.verdict] ?? "var(--border)" }} aria-labelledby="ev-verdict">
+            <h2 id="ev-verdict" style={{ color: VERDICT_COLOR[report.verdict] }}>{report.verdict}</h2>
+            <p>{report.verdict_evidence}</p>
+            <ul className="facts">
+              {([
+                ["Scenario", report.scenario_id],
+                ["Mode", report.policy_mode],
+                ["Total events", report.summary.total_events],
+                ["Proposed", report.summary.tool_calls_proposed],
+                ["Allowed", report.summary.tool_calls_allowed],
+                ["Denied", report.summary.tool_calls_denied],
+                ["Injections", report.summary.injections_detected],
+              ] as const).map(([label, val]) => <li key={label}><span className="muted">{label}: </span><strong>{val}</strong></li>)}
+            </ul>
+          </section>
 
-          {/* Event log */}
-          <h2 style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "0.75rem" }}>
-            Audit Log ({report.events.length} events)
-          </h2>
-          <div
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: 10,
-              overflow: "hidden",
-            }}
-          >
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <section className="panel" aria-labelledby="ev-key">
+            <h2 id="ev-key">Key policy decision{report.critical_tool ? `: ${report.critical_tool}` : ""}</h2>
+            <p>{keyDecisionSentence(report.key_decision, report.critical_tool)}</p>
+            <div className="decision-grid">
+              <DecisionCard heading="Recorded decision" event={report.key_decision} emptyText="This run never reached the key decision, so there is nothing to explain." />
+            </div>
+          </section>
+
+          <h2 className="table-title">Audit log ({report.events.length} events)</h2>
+          <ScrollTable label="Audit log">
+            <table>
+              <caption className="sr-only">Audit events of this run in order</caption>
               <thead>
-                <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
-                  {["#", "Type", "Tool", "Policy", "Reason", "Provenance"].map((h) => (
-                    <th key={h} style={{ padding: "0.625rem 0.75rem", textAlign: "left", color: "var(--text-muted)", fontWeight: 700 }}>{h}</th>
-                  ))}
-                </tr>
+                <tr>{["#", "Type", "Tool", "Policy", "Reason", "Trust level", "Provenance"].map((h) => <th key={h} scope="col">{h}</th>)}</tr>
               </thead>
               <tbody>
                 {report.events.map((ev) => {
                   const isDeny = ev.policy_outcome === "DENY";
+                  const isKey = report.key_decision?.event_id === ev.event_id;
                   return (
-                    <tr key={ev.event_id} style={{ borderBottom: "1px solid var(--border)", background: isDeny ? "rgba(251,113,133,0.04)" : "transparent" }}>
-                      <td style={{ padding: "0.5rem 0.75rem", color: "var(--text-muted)" }}>{ev.sequence_number}</td>
-                      <td style={{ padding: "0.5rem 0.75rem", color: isDeny ? "var(--attack)" : ev.event_type === "TOOL_CALL_EXECUTED" ? "var(--defense)" : "var(--text-dim)", fontWeight: 600 }}>
-                        {ev.event_type.replace(/_/g, " ")}
+                    <tr key={ev.event_id} className={isKey ? "row-first" : undefined}>
+                      <th scope="row">{ev.sequence_number}</th>
+                      <td className={isDeny ? "result-deny" : ev.event_type === "TOOL_CALL_EXECUTED" ? "result-allow" : undefined}>
+                        {ev.event_type.replace(/_/g, " ")}{isKey && <><br /><strong>Key decision</strong></>}
                       </td>
-                      <td style={{ padding: "0.5rem 0.75rem" }}>
-                        {ev.tool_name ? <code style={{ color: "var(--warning)", fontSize: 11 }}>{ev.tool_name}</code> : <span style={{ color: "var(--text-muted)" }}>—</span>}
-                      </td>
-                      <td style={{ padding: "0.5rem 0.75rem" }}>
-                        {ev.policy_outcome ? (
-                          <span style={{ color: isDeny ? "var(--attack)" : "var(--defense)", fontWeight: 700, fontSize: 11 }}>
-                            {ev.policy_outcome}
-                          </span>
-                        ) : <span style={{ color: "var(--text-muted)" }}>—</span>}
-                      </td>
-                      <td style={{ padding: "0.5rem 0.75rem", color: "var(--text-muted)", fontSize: 11 }}>
-                        {ev.policy_reason_code ?? "—"}
-                      </td>
-                      <td style={{ padding: "0.5rem 0.75rem", color: "var(--text-muted)", fontSize: 11 }}>
-                        {ev.content_provenance ?? "—"}
-                      </td>
+                      <td>{ev.tool_name ? <code>{ev.tool_name}</code> : <span className="muted">None</span>}</td>
+                      <td>{ev.policy_outcome ? <strong className={isDeny ? "result-deny" : "result-allow"}>{ev.policy_outcome}</strong> : <span className="muted">None</span>}</td>
+                      <td>{ev.policy_reason_code ?? "None"}</td>
+                      <td>{ev.event_type.startsWith("TOOL_CALL") ? trustText(ev.actor_trust_level) : "Not applicable"}</td>
+                      <td>{ev.content_provenance ?? "None"}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-          </div>
+          </ScrollTable>
 
-          <p style={{ marginTop: "1rem", fontSize: "0.7rem", color: "var(--text-muted)", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: 6, background: "rgba(23,35,56,0.5)" }}>
-            ⚠ Mode A: This evidence log is generated from deterministic synthetic fixtures.
-            It does not represent real AI model behavior or real network activity.
+          <p className="note">
+            Mode A: this evidence log is generated from deterministic synthetic fixtures. It does not represent real AI model behavior or real network activity.
           </p>
         </>
       )}
 
       {!report && !loading && !error && (
-        <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-muted)", fontSize: 14, border: "1px dashed var(--border)", borderRadius: 10 }}>
-          Run a simulation in Attack Lab and paste the run ID here.
-        </div>
+        <div className="empty">Run a simulation in Attack Lab, then use its Evidence link or paste the run ID here.</div>
       )}
     </div>
   );

@@ -24,6 +24,7 @@ export default function ReactFlowGraph({ nodes, edges }: Props) {
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
+        edgesFocusable={false}
         proOptions={{ hideAttribution: true }}
         style={{ background: "var(--surface)" }}
       >

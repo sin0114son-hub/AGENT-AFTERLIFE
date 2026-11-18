@@ -1,34 +1,44 @@
-﻿import type { ScenarioSummary, RunInfo, AgentEvent, Report, CompareResult, PolicyMode } from "./types";
+import type { ScenarioSummary, RunInfo, AgentEvent, Report, CompareResult, PolicyMode } from "./types";
+import { ApiError, describeApiError, type ApiContext } from "./errors.ts";
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path, { cache: "no-store" });
-  if (!res.ok) throw new Error(`API ${path}: ${res.status} ${await res.text()}`);
+async function get<T>(path: string, context: ApiContext): Promise<T> {
+  let res: Response;
+  try { res = await fetch(path, { cache: "no-store" }); }
+  catch { throw new ApiError(0, describeApiError(0, context)); }
+  // The body is deliberately not read: it can hold internal URLs or raw JSON.
+  if (!res.ok) throw new ApiError(res.status, describeApiError(res.status, context));
   return res.json() as Promise<T>;
 }
 
 export const api = {
   async listScenarios(): Promise<ScenarioSummary[]> {
-    return (await get<{scenarios: ScenarioSummary[]}>("/api/scenarios")).scenarios;
+    return (await get<{scenarios: ScenarioSummary[]}>("/api/scenarios", "scenarios")).scenarios;
   },
   getRun(runId: string): Promise<RunInfo> {
-    return get(`/api/run/${encodeURIComponent(runId)}`);
+    return get(`/api/run/${encodeURIComponent(runId)}`, "run");
   },
   async getRunEvents(runId: string): Promise<AgentEvent[]> {
-    return (await get<{events: AgentEvent[]}>(`/api/run/${encodeURIComponent(runId)}/events`)).events;
+    return (await get<{events: AgentEvent[]}>(`/api/run/${encodeURIComponent(runId)}/events`, "events")).events;
   },
   getReport(runId: string): Promise<Report> {
-    return get(`/api/report/${encodeURIComponent(runId)}`);
+    return get(`/api/report/${encodeURIComponent(runId)}`, "report");
   },
   compare(a: string, b: string): Promise<CompareResult> {
-    return get(`/api/compare?run_a=${encodeURIComponent(a)}&run_b=${encodeURIComponent(b)}`);
+    return get(`/api/compare?run_a=${encodeURIComponent(a)}&run_b=${encodeURIComponent(b)}`, "compare");
   },
   async startRun(scenarioId: string, mode: PolicyMode, signal: AbortSignal,
     onEvent: (event: AgentEvent) => void): Promise<{run: RunInfo; events: AgentEvent[]}> {
-    const res = await fetch("/api/run", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scenario_id: scenarioId, policy_mode: mode }), signal,
-    });
-    if (!res.ok) throw new Error(`POST /api/run: ${res.status} ${await res.text()}`);
+    let res: Response;
+    try {
+      res = await fetch("/api/run", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario_id: scenarioId, policy_mode: mode }), signal,
+      });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      throw new ApiError(0, describeApiError(0, "start"));
+    }
+    if (!res.ok) throw new ApiError(res.status, describeApiError(res.status, "start"));
     const reader = res.body?.getReader();
     if (!reader) throw new Error("Missing event stream");
     const decoder = new TextDecoder();
