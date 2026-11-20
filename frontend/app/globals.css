@@ -210,13 +210,38 @@ button:active:not(:disabled), a:active { filter: brightness(.9); }
 .decision-card dl > div { display: grid; grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr); gap: .5rem; }
 .decision-card dt { color: var(--text-muted); }
 .decision-card dd { margin: 0; overflow-wrap: anywhere; }
+.audit-workspace { display: grid; gap: 1rem; align-items: start; }
+.audit-inspector { min-width: 0; }
+.audit-workspace .timeline { margin-bottom: 0; }
 .timeline-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .4rem; }
-.timeline-item { border: 1px solid var(--border); border-radius: 6px; padding: .5rem .75rem; font-size: .75rem; }
+.timeline-item { display: grid; width: 100%; gap: .2rem; text-align: left; overflow-wrap: anywhere; min-height: 44px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: .5rem .75rem; font-size: .8125rem; cursor: pointer; }
 .timeline-item.deny { border-color: var(--attack-edge); background: var(--attack-tint); }
 .timeline-item.allow { border-color: var(--defense-edge); background: var(--defense-tint); }
-.timeline-head { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
-.graph-frame { height: 480px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); margin-top: .75rem; }
+.timeline-head { display: flex; justify-content: space-between; gap: .25rem .5rem; flex-wrap: wrap; }
+.graph-panel summary { font-weight: 700; cursor: pointer; padding-block: .6rem; }
+.graph-panel summary h2 { display: inline; }
+.graph-panel details > p { margin-top: .25rem; }
+.graph-frame { height: 540px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); margin-top: .75rem; }
 .graph-loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); font-size: .875rem; }
+.graph-node { display: grid; align-content: center; width: 100%; height: 100%; text-align: left; padding: .35rem .65rem; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface-2); font-size: .8125rem; line-height: 1.35; overflow-wrap: anywhere; }
+button.graph-node { pointer-events: auto; cursor: pointer; }
+.graph-node[data-kind="TOOL_CALL_DENIED"], .graph-node[data-kind="RUN_ERROR"] { border-color: var(--attack); }
+.graph-node[data-executed-event-id] { border-color: var(--defense); }
+.graph-node[data-kind="INJECTION_DETECTED"] { border-color: var(--warning); }
+.audit-workspace button[aria-pressed="true"] { border-color: var(--agent); box-shadow: inset 3px 0 var(--agent); }
+.audit-workspace button:focus-visible { outline-offset: 2px; }
+.graph-frame .react-flow__handle { opacity: 0; pointer-events: none; }
+.graph-frame .react-flow__edge.context-edge path.react-flow__edge-path { stroke: var(--text-muted); stroke-dasharray: 4 4; }
+.graph-frame .react-flow__edge.execution-edge path.react-flow__edge-path { stroke: var(--defense); }
+.graph-controls { position: absolute; bottom: .5rem; right: .5rem; display: flex; gap: .35rem; z-index: 5; }
+.graph-controls .action { min-width: 44px; padding-inline: .6rem; }
+.scroll-table tr.audit-target { background: var(--warning-tint); outline: 2px solid var(--agent); outline-offset: -2px; }
+@media (min-width: 960px) {
+  .audit-workspace { grid-template-columns: minmax(15rem, 1fr) minmax(0, 1.75fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .graph-frame *, .graph-frame *::before, .graph-frame *::after { animation: none !important; transition: none !important; }
+}
 .scroll-hint { color: var(--warning); font-size: .8125rem; margin: .5rem 0 .25rem; }
 .scroll-table { border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; max-width: 100%; }
 .scroll-table table { font-variant-numeric: tabular-nums; width: 100%; min-width: 40rem; border-collapse: collapse; font-size: .8125rem; }
@@ -231,10 +256,20 @@ button:active:not(:disabled), a:active { filter: brightness(.9); }
 @media (max-width: 640px) {
   .lab-page { padding: 1rem; }
   .panel { padding: .875rem; }
-  .graph-frame { height: 300px; }
-  .react-flow__minimap { display: none; }
+  .graph-frame { height: 390px; }
   .decision-card dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .button-pair.wrap .action { white-space: normal; flex: 1 1 100%; }
 }
 /* Links inside sentences need more than color to stand out (axe: link-in-text-block). */
 .experiment-page p a, .lab-page p a, .home-note a { text-decoration: underline; text-underline-offset: .15em; }
+
+.tm-decision { border-top: 3px solid var(--agent); }
+.tm-side { display: grid; grid-template-rows: 1fr auto; min-width: 0; }
+.tm-side .decision-card h3 { font-size: 1.05rem; }
+.tm-side .decision-card > p:first-of-type { font-size: 1.25rem; }
+.tm-evidence { padding: .65rem .875rem; text-decoration: underline; }
+.tm-decision code, .tm-side { overflow-wrap: anywhere; }
+.tm-side[data-decision="TOOL_CALL_EXECUTED"] .decision-card { border: 1px solid var(--defense); }
+.tm-side[data-decision="TOOL_CALL_DENIED"] .decision-card { border: 3px double var(--attack); }
+.time-machine .lead { margin-bottom: .875rem; }
+.time-machine .input-row { margin-bottom: .75rem; }

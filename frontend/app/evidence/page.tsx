@@ -17,6 +17,7 @@ const VERDICT_COLOR: Record<string, string> = {
 
 export default function EvidencePage() {
   const [runId, setRunId] = useState("");
+  const [linkedEventId, setLinkedEventId] = useState<string | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,24 +36,38 @@ export default function EvidencePage() {
     }
   }, []);
 
-  // Attack Lab links here with ?run_id=... so the report opens without pasting.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const id = new URLSearchParams(window.location.search).get("run_id");
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("run_id");
+      setLinkedEventId(params.get("event_id"));
       if (id) { setRunId(id); void fetchReport(id); }
     }, 0);
     return () => window.clearTimeout(timer);
   }, [fetchReport]);
 
+  const linkedEvent = report?.events.find((ev) => ev.event_id === linkedEventId && ev.run_id === report.run_id);
+
+  useEffect(() => {
+    if (linkedEvent) document.getElementById(`audit-${linkedEvent.event_id}`)?.focus();
+  }, [linkedEvent]);
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    void fetchReport(runId);
+    const id = runId.trim();
+    if (loading || !id) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("run_id", id);
+    url.searchParams.delete("event_id");
+    window.history.replaceState(null, "", url);
+    setLinkedEventId(null);
+    void fetchReport(id);
   }
 
   return (
     <div className="lab-page narrow">
       <h1>Evidence Report</h1>
-      <p className="lead">Retrieve the structured security evidence for any completed run.</p>
+      <p className="lead">Retrieve the recorded security evidence for a simulation run.</p>
 
       <form className="panel input-row" onSubmit={submit}>
         <div className="field">
@@ -91,18 +106,20 @@ export default function EvidencePage() {
           </section>
 
           <h2 className="table-title">Audit log ({report.events.length} events)</h2>
+          {linkedEventId && !linkedEvent && <p role="status" className="note">That event was not found in this run. The full audit log is below.</p>}
           <ScrollTable label="Audit log">
             <table>
               <caption className="sr-only">Audit events of this run in order</caption>
               <thead>
-                <tr>{["#", "Type", "Tool", "Policy", "Reason", "Trust level", "Provenance"].map((h) => <th key={h} scope="col">{h}</th>)}</tr>
+                <tr>{["#", "Type", "Tool", "Policy", "Reason", "Caller trust", "Input provenance"].map((h) => <th key={h} scope="col">{h}</th>)}</tr>
               </thead>
               <tbody>
                 {report.events.map((ev) => {
                   const isDeny = ev.policy_outcome === "DENY";
                   const isKey = report.key_decision?.event_id === ev.event_id;
                   return (
-                    <tr key={ev.event_id} className={isKey ? "row-first" : undefined}>
+                    <tr key={ev.event_id} id={`audit-${ev.event_id}`} tabIndex={linkedEvent === ev ? -1 : undefined}
+                      className={linkedEvent === ev ? "audit-target" : isKey ? "row-first" : undefined}>
                       <th scope="row">{ev.sequence_number}</th>
                       <td className={isDeny ? "result-deny" : ev.event_type === "TOOL_CALL_EXECUTED" ? "result-allow" : undefined}>
                         {ev.event_type.replace(/_/g, " ")}{isKey && <><br /><strong>Key decision</strong></>}
@@ -110,7 +127,7 @@ export default function EvidencePage() {
                       <td>{ev.tool_name ? <code>{ev.tool_name}</code> : <span className="muted">None</span>}</td>
                       <td>{ev.policy_outcome ? <strong className={isDeny ? "result-deny" : "result-allow"}>{ev.policy_outcome}</strong> : <span className="muted">None</span>}</td>
                       <td>{ev.policy_reason_code ?? "None"}</td>
-                      <td>{ev.event_type.startsWith("TOOL_CALL") ? trustText(ev.actor_trust_level) : "Not applicable"}</td>
+                      <td>{trustText(ev.actor_trust_level)}</td>
                       <td>{ev.content_provenance ?? "None"}</td>
                     </tr>
                   );

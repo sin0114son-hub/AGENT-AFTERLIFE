@@ -6,8 +6,8 @@ import Link from "next/link";
 import { api } from "../lib/api";
 import { userMessage } from "../lib/errors";
 import { useSimulation } from "../lib/useSimulation";
-import { buildGraph } from "../lib/graphUtils";
-import { keyDecisionSentence, trustText } from "../lib/explain";
+import { EVENT_LABEL } from "../lib/graphUtils";
+import { eventTitle, keyDecisionSentence, reasonText, trustText } from "../lib/explain";
 import type { ScenarioSummary, Report, PolicyMode } from "../lib/types";
 import DecisionCard from "../components/DecisionCard";
 
@@ -32,6 +32,7 @@ export default function AttackLabPage() {
   const [reportError, setReportError] = useState<string | null>(null);
   const [scenariosError, setScenariosError] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState("");
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   // Completed runs of this page visit, so a defended and an undefended run can be compared with one click.
   const [completed, setCompleted] = useState<Record<string, string>>({});
   const started = useRef<{ scenario: string; mode: PolicyMode } | null>(null);
@@ -68,6 +69,7 @@ export default function AttackLabPage() {
     setReport(null);
     setReportError(null);
     setCopyMessage("");
+    setSelectedEventId(null);
     started.current = { scenario: selectedScenario, mode };
     controls.start(selectedScenario, mode);
   }, [selectedScenario, mode, controls]);
@@ -82,7 +84,7 @@ export default function AttackLabPage() {
     }
   }
 
-  const { nodes, edges } = buildGraph(sim.events);
+  const selectedEvent = sim.events.find((event) => event.event_id === selectedEventId);
   const currentScenario = scenarios.find((s) => s.scenario_id === selectedScenario);
   const undefendedId = completed[`${selectedScenario}:undefended`];
   const defendedId = completed[`${selectedScenario}:defended`];
@@ -137,9 +139,9 @@ export default function AttackLabPage() {
         </div>
       )}
 
-      <div role="status" className="panel status-bar">
+      <div className="panel status-bar">
         {isRunning && <span className="pulse-dot dot" aria-hidden />}
-        <span>Status: <strong>{sim.status.toUpperCase()}</strong></span>
+        <span role="status">Status: <strong>{sim.status.toUpperCase()}</strong></span>
         <span>Events: {sim.events.length}</span>
         {sim.error && <span className="result-deny">{sim.error}</span>}
       </div>
@@ -189,39 +191,71 @@ export default function AttackLabPage() {
         </section>
       )}
 
-      <section className="panel timeline" aria-labelledby="timeline-title">
-        <h2 id="timeline-title">Event timeline</h2>
-        {sim.events.length === 0 ? (
-          <p className="muted">{sim.status === "idle" ? "Choose a scenario and a mode, then start the simulation." : "Waiting for events…"}</p>
-        ) : (
-          <ol className="timeline-list">
-            {sim.events.map((ev) => {
-              const deny = ev.event_type === "TOOL_CALL_DENIED" || ev.event_type === "TRUST_CHECK_FAILED" || ev.event_type === "INJECTION_DETECTED";
-              const allow = ev.event_type === "TOOL_CALL_EXECUTED";
-              const isKey = report?.key_decision?.event_id === ev.event_id;
-              return (
-                <li key={ev.event_id} className={`timeline-item${deny ? " deny" : allow ? " allow" : ""}`}>
-                  <div className="timeline-head">
-                    <span className={deny ? "result-deny" : allow ? "result-allow" : undefined}><strong>#{ev.sequence_number} {ev.event_type.replace(/_/g, " ")}</strong></span>
-                    {ev.policy_outcome && <strong className={deny ? "result-deny" : "result-allow"}>{ev.policy_outcome}</strong>}
-                  </div>
-                  {ev.tool_name && <div className="muted">tool: <code>{ev.tool_name}</code></div>}
-                  {ev.policy_reason_code && <div className="muted">reason: {ev.policy_reason_code}</div>}
-                  {ev.event_type.startsWith("TOOL_CALL") && ev.actor_trust_level !== undefined && ev.actor_trust_level !== null && <div className="muted">source trust level: {trustText(ev.actor_trust_level)}</div>}
-                  {isKey && <div><strong>Key policy decision</strong></div>}
-                </li>
-              );
-            })}
-          </ol>
-        )}
-      </section>
+      <div className="audit-workspace">
+        <section className="panel timeline" aria-labelledby="timeline-title">
+          <h2 id="timeline-title">Event timeline</h2>
+          {sim.events.length === 0 ? (
+            <p className="muted">{sim.status === "idle" ? "Start a simulation to see its audit events."
+              : isRunning ? "Waiting for the first audit event…" : "No audit events were received."}</p>
+          ) : (
+            <ol className="timeline-list">
+              {sim.events.map((ev) => {
+                const denied = ev.event_type === "TOOL_CALL_DENIED";
+                const executed = ev.event_type === "TOOL_CALL_EXECUTED";
+                const isKey = report?.key_decision?.event_id === ev.event_id;
+                return (
+                  <li key={ev.event_id}>
+                    <button type="button" className={`timeline-item${denied ? " deny" : executed ? " allow" : ""}`}
+                      data-event-id={ev.event_id} aria-pressed={selectedEventId === ev.event_id}
+                      aria-controls="audit-event-detail" onClick={() => setSelectedEventId(ev.event_id)}>
+                      <span className="timeline-head">
+                        <strong>#{ev.sequence_number} {executed ? "Mock tool executed" : EVENT_LABEL[ev.event_type]}</strong>
+                        {ev.policy_outcome && <strong className={denied ? "result-deny" : "result-allow"}>{ev.policy_outcome}</strong>}
+                      </span>
+                      {ev.tool_name && <code>{ev.tool_name}</code>}
+                      {ev.policy_reason_code && <span className="muted">{ev.policy_reason_code}</span>}
+                      {isKey && <strong>Key policy decision</strong>}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
 
-      <section className="panel graph-panel" aria-labelledby="graph-title">
-        <h2 id="graph-title">Event graph</h2>
-        <p className="muted">A visual summary of the same events. The timeline above lists them in order and is the better way to read the result with a keyboard or a screen reader.</p>
-        <div className="graph-frame"><ReactFlowGraph nodes={nodes} edges={edges} /></div>
-      </section>
+        <div className="audit-inspector">
+          <section id="audit-event-detail" className="panel decision-card" aria-labelledby="audit-event-title">
+            <h2 id="audit-event-title">Selected audit event</h2>
+            {!selectedEvent ? <p className="muted">Select a timeline entry or a graph event to read its recorded details.</p> : (
+              <>
+                <h3>{eventTitle(selectedEvent)}</h3>
+                <dl>
+                  <div><dt>Tool</dt><dd>{selectedEvent.tool_name ?? "Not recorded"}</dd></div>
+                  <div><dt>Policy outcome</dt><dd>{selectedEvent.policy_outcome ?? "Not recorded"}</dd></div>
+                  <div><dt>Reason code</dt><dd>{selectedEvent.policy_reason_code ?? "Not recorded"}</dd></div>
+                  <div><dt>Caller trust level</dt><dd>{trustText(selectedEvent.actor_trust_level)}</dd></div>
+                  <div><dt>Input provenance</dt><dd>{selectedEvent.content_provenance ?? "Not recorded"}</dd></div>
+                </dl>
+                {selectedEvent.policy_reason_code && <p>{reasonText(selectedEvent.policy_reason_code)}</p>}
+                {selectedEvent.error && <p className="result-deny">{selectedEvent.error}</p>}
+                <p><Link href={{ pathname: "/evidence", query: { run_id: selectedEvent.run_id, event_id: selectedEvent.event_id } }} prefetch={false}>
+                  Open audit event #{selectedEvent.sequence_number} in Evidence
+                </Link></p>
+              </>
+            )}
+          </section>
 
+          <section className="panel graph-panel" aria-labelledby="graph-title">
+            <details open>
+              <summary><h2 id="graph-title">Event graph</h2></summary>
+              <p className="muted">The dashed line shows scenario context. Numbered rows show audit order. A solid line links a policy decision and a mock execution recorded in the same event.</p>
+              <div className="graph-frame">
+                <ReactFlowGraph events={sim.events} selectedId={selectedEventId} onSelect={setSelectedEventId} />
+              </div>
+            </details>
+          </section>
+        </div>
+      </div>
       <p className="note">These are synthetic scenarios using mock tools; no real agent actions occur.</p>
     </div>
   );

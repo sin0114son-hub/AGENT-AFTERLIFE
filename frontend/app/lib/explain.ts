@@ -88,10 +88,11 @@ export function relateFirstDifferenceToKeyDecision(
   if (!keyA && !keyB) return { same: false, text: "Neither run reached the key decision, so there is nothing to relate." };
   const same = !!firstA && !!firstB && !!keyA && !!keyB && firstA.event_id === keyA.event_id && firstB.event_id === keyB.event_id;
   if (same) return { same, text: "The first event difference is the key decision." };
+  const earlier = firstA && firstB && keyA && keyB && firstA.sequence_number < keyA.sequence_number && firstB.sequence_number < keyB.sequence_number;
   const where = [keyA ? `#${keyA.sequence_number} in Run A` : null, keyB ? `#${keyB.sequence_number} in Run B` : null].filter(Boolean).join(" and ");
   return {
     same,
-    text: `The first event difference comes earlier than the key decision (${where}). Key decision events are matched by tool name, not by row number, so their numbers can differ between runs.`,
+    text: `${earlier ? "The first event difference comes earlier than the key decision" : "Recorded key decision"} (${where}). Key decision events are matched by tool name, not by row number, so their numbers can differ between runs.`,
   };
 }
 

@@ -1,147 +1,52 @@
-/**
- * Converts AgentEvent[] into React Flow nodes and edges.
- * Layout is deterministic — positions are computed from sequence_number.
- */
+import type { Edge, Node } from "@xyflow/react";
+import type { AgentEvent, EventType } from "./types";
 
-import type { Node, Edge } from "@xyflow/react";
-import type { AgentEvent } from "./types";
+export const EVENT_LABEL: Record<EventType, string> = {
+  TOOL_CALL_PROPOSED: "Action proposed",
+  TOOL_CALL_EXECUTED: "Policy decision",
+  TOOL_CALL_DENIED: "Tool call blocked",
+  INJECTION_DETECTED: "Injection detected",
+  TRUST_CHECK_FAILED: "Trust check failed",
+  EXECUTION_LIMIT_REACHED: "Execution limit reached",
+  RUN_COMPLETE: "Run complete",
+  RUN_ERROR: "Run error",
+};
 
-/** Fixed anchor nodes always present */
-export const STATIC_NODES: Node[] = [
-  {
-    id: "source",
-    type: "default",
-    position: { x: 60, y: 240 },
-    data: { label: "🌐 Untrusted Source" },
-    style: {
-      background: "rgba(251,113,133,0.15)",
-      border: "1.5px solid #FB7185",
-      color: "#FB7185",
-      borderRadius: 10,
-      padding: "10px 16px",
-      fontSize: 13,
-      fontWeight: 600,
-    },
-  },
-  {
-    id: "agent",
-    type: "default",
-    position: { x: 300, y: 240 },
-    data: { label: "🤖 Synthetic Agent" },
-    style: {
-      background: "rgba(56,189,248,0.15)",
-      border: "1.5px solid #38BDF8",
-      color: "#38BDF8",
-      borderRadius: 10,
-      padding: "10px 16px",
-      fontSize: 13,
-      fontWeight: 600,
-    },
-  },
-  {
-    id: "policy",
-    type: "default",
-    position: { x: 540, y: 120 },
-    data: { label: "🛡 Policy Engine" },
-    style: {
-      background: "rgba(52,211,153,0.15)",
-      border: "1.5px solid #34D399",
-      color: "#34D399",
-      borderRadius: 10,
-      padding: "10px 16px",
-      fontSize: 13,
-      fontWeight: 600,
-    },
-  },
-  {
-    id: "tools",
-    type: "default",
-    position: { x: 540, y: 360 },
-    data: { label: "🔧 Mock Tools" },
-    style: {
-      background: "rgba(251,191,36,0.15)",
-      border: "1.5px solid #FBBF24",
-      color: "#FBBF24",
-      borderRadius: 10,
-      padding: "10px 16px",
-      fontSize: 13,
-      fontWeight: 600,
-    },
-  },
-];
+export type AuditNode = Node<{
+  label: string;
+  event?: AgentEvent;
+  execution?: boolean;
+}, "audit">;
 
-function colorForEvent(type: string): string {
-  if (type === "TOOL_CALL_DENIED" || type === "TRUST_CHECK_FAILED") return "#FB7185";
-  if (type === "INJECTION_DETECTED") return "#F97316";
-  if (type === "TOOL_CALL_EXECUTED") return "#34D399";
-  if (type === "RUN_COMPLETE") return "#38BDF8";
-  if (type === "RUN_ERROR" || type === "EXECUTION_LIMIT_REACHED") return "#F43F5E";
-  return "#94A3B8";
-}
+export const GRAPH_WIDTH = 424;
 
-function labelForEvent(ev: AgentEvent): string {
-  const short: Record<string, string> = {
-    TOOL_CALL_PROPOSED: `📤 Propose: ${ev.tool_name ?? "?"}`,
-    TOOL_CALL_EXECUTED: `✅ Executed: ${ev.tool_name ?? "?"}`,
-    TOOL_CALL_DENIED: `🚫 Denied: ${ev.tool_name ?? "?"}`,
-    INJECTION_DETECTED: "⚠️ Injection",
-    TRUST_CHECK_FAILED: "🔴 Trust fail",
-    EXECUTION_LIMIT_REACHED: "⏱ Limit",
-    RUN_COMPLETE: "🏁 Complete",
-    RUN_ERROR: "💥 Error",
-  };
-  return short[ev.event_type] ?? ev.event_type;
-}
-
-export function buildGraph(events: AgentEvent[]): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = [...STATIC_NODES];
-  const edges: Edge[] = [
-    { id: "src-agent", source: "source", target: "agent", animated: true, style: { stroke: "#FB7185", strokeDasharray: "5 3" } },
-    { id: "agent-policy", source: "agent", target: "policy", style: { stroke: "#38BDF8" } },
-    { id: "agent-tools", source: "agent", target: "tools", style: { stroke: "#FBBF24" } },
+export function buildGraph(events: readonly AgentEvent[]): { nodes: AuditNode[]; edges: Edge[] } {
+  const nodes: AuditNode[] = [
+    { id: "source", type: "audit", position: { x: 0, y: 0 }, data: { label: "Input source" }, width: 205 },
+    { id: "agent", type: "audit", position: { x: 240, y: 0 }, data: { label: "Synthetic agent" }, width: 184 },
   ];
+  const edges: Edge[] = [{
+    id: "input-context", source: "source", target: "agent", className: "context-edge",
+    type: "straight", selectable: false,
+  }];
 
-  events.forEach((ev, i) => {
-    const col = Math.floor(i / 4);
-    const row = i % 4;
-    const x = 820 + col * 200;
-    const y = 60 + row * 120;
-    const color = colorForEvent(ev.event_type);
-
+  [...events].sort((a, b) => a.sequence_number - b.sequence_number).forEach((event, index) => {
+    const y = 61 + index * 70;
+    const id = `event-${event.event_id}`;
     nodes.push({
-      id: ev.event_id,
-      type: "default",
-      position: { x, y },
-      data: { label: labelForEvent(ev) },
-      style: {
-        background: `${color}1A`,
-        border: `1.5px solid ${color}`,
-        color,
-        borderRadius: 8,
-        padding: "6px 12px",
-        fontSize: 11,
-        fontWeight: 600,
-        maxWidth: 160,
-      },
+      id, type: "audit", position: { x: 0, y }, width: 205,
+      data: { label: EVENT_LABEL[event.event_type], event },
     });
 
-    // Connect to policy or tools based on event type
-    const sourceNode =
-      ev.event_type === "TOOL_CALL_PROPOSED" ||
-      ev.event_type === "TOOL_CALL_DENIED" ||
-      ev.event_type === "TRUST_CHECK_FAILED" ||
-      ev.event_type === "INJECTION_DETECTED"
-        ? "policy"
-        : ev.event_type === "TOOL_CALL_EXECUTED"
-        ? "tools"
-        : "agent";
-
-    edges.push({
-      id: `edge-${ev.event_id}`,
-      source: sourceNode,
-      target: ev.event_id,
-      style: { stroke: color, opacity: 0.6 },
-    });
+    // This branch represents two facts from the same record.
+    if (event.event_type === "TOOL_CALL_EXECUTED") {
+      const target = `execution-${event.event_id}`;
+      nodes.push({
+        id: target, type: "audit", position: { x: 240, y }, width: 184,
+        data: { label: "Mock tool executed", event, execution: true },
+      });
+      edges.push({ id: target, source: id, target, type: "straight", className: "execution-edge", selectable: false });
+    }
   });
 
   return { nodes, edges };

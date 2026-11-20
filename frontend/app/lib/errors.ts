@@ -25,7 +25,7 @@ export function describeApiError(status: number, context: ApiContext): string {
       : "No run was found for that ID. Copy the run ID from Attack Lab and paste it again. Runs from an older or different server are not available.";
   }
   if (status === 400 && context === "compare") {
-    return "These two runs cannot be compared. Use two completed runs of the same scenario, one defended and one undefended.";
+    return "These two runs cannot be compared. Use two completed runs of the same scenario, one defended and one undefended, from the same policy revision. Run the pair again in Attack Lab.";
   }
   if (status === 422) return `The request was not accepted (HTTP ${status}). Check the run ID and try again.`;
   if (status === 429) return "Too many requests. Wait a moment and try again.";

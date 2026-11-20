@@ -142,6 +142,22 @@ try:
             shot(page, f'attack-lab-result-{width}')
             no_overflow(page, width, f'attack lab {tag}')
             axe(page, f'attack lab {tag}')
+            if width == 320:
+                graph = page.locator('.graph-frame')
+                for _ in range(5):
+                    graph.get_by_role('button', name='Zoom in').click()
+                page.keyboard.press('Tab')
+                nodes = graph.locator('button.graph-node')
+                nodes.nth(-2).focus()
+                page.keyboard.press('Tab')
+                page.wait_for_function("""() => {
+                    const node = document.activeElement;
+                    if (node.dataset.kind !== 'RUN_COMPLETE') return false;
+                    const {top, right, bottom, left} = node.getBoundingClientRect();
+                    const frame = node.closest('.graph-frame').getBoundingClientRect();
+                    return top >= frame.top && right <= frame.right && bottom <= frame.bottom && left >= frame.left;
+                }""", timeout=5000)
+                check('keyboard focus reveals the final event in the zoomed graph', nodes.last.evaluate('node => node.matches(":focus-visible")'))
 
             evidence_link = page.get_by_role('link', name='Open in Evidence')
             check(f'evidence link carries the run ID ({tag})', defended in (evidence_link.get_attribute('href') or ''))
@@ -211,6 +227,31 @@ try:
             shot(page, f'time-machine-s2-{width}')
             no_overflow(page, width, f'time machine s2 {tag}')
 
+            page.goto(base + f"/time-machine?run_a={ids['defended']}&run_b={ids['undefended']}")
+            page.get_by_role('heading', name='First event difference: step #4').wait_for()
+            for column, mode in enumerate(('undefended', 'defended')):
+                decision = api('/api/report/' + ids[mode])['key_decision']
+                side = page.locator('.tm-side').nth(column)
+                check(f'reversed inputs preserve {mode} evidence ({tag})',
+                      side.get_by_role('heading').inner_text().startswith(mode.capitalize()) and
+                      side.get_by_role('link').get_attribute('href') ==
+                      f"/evidence?run_id={ids[mode]}&event_id={decision['event_id']}")
+            check(f'same outcome discloses different reasons ({tag})',
+                  'Reasons differ' in page.locator('tbody tr').nth(1).inner_text())
+
+            page.locator('.tm-side').last.get_by_role('link').click()
+            target = page.locator('tr.audit-target')
+            target.wait_for()
+            check(f'evidence focuses the recorded row ({tag})',
+                  target.get_attribute('id') == f"audit-{decision['event_id']}" and
+                  target.evaluate('row => row === document.activeElement'))
+            page.get_by_label('Run ID').fill(ids['undefended'])
+            page.get_by_role('button', name='Fetch').click()
+            page.get_by_role('heading', name='VULNERABLE', exact=True).wait_for()
+            page.reload()
+            page.get_by_role('heading', name='VULNERABLE', exact=True).wait_for()
+            check(f'manual evidence fetch survives reload ({tag})', 'event_id=' not in page.url)
+
             # ---- friendly errors, no internals ----
             page.goto(base + '/evidence', wait_until='networkidle')
             page.get_by_label('Run ID').fill('does-not-exist')
@@ -220,8 +261,8 @@ try:
             msg = alert.inner_text()
             check(f'evidence 404 message has no URL or JSON ({tag})', 'No run was found' in msg and '/api' not in msg and '{' not in msg and 'detail' not in msg.lower(), msg)
             page.goto(base + '/time-machine', wait_until='networkidle')
-            page.get_by_label('Run A (e.g. undefended)').fill(ids['undefended'])
-            page.get_by_label('Run B (e.g. defended)').fill(ids['undefended'])
+            page.get_by_label('Run A').fill(ids['undefended'])
+            page.get_by_label('Run B').fill(ids['undefended'])
             page.get_by_role('button', name='Compare').click()
             alert = app_alert(page).first
             alert.wait_for()
